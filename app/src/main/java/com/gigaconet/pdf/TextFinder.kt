@@ -150,7 +150,9 @@ object TextFinder {
                     }
                     groups.add(mutableListOf(l))
                 }
-                for (g in groups) blocks.add(ocrBlock(g, w, h, regular, boldP))
+                // En fotos se edita renglón por renglón: así solo cambia la línea que
+                // tocaste y el resto de la foto queda intacto
+                for (g in groups) for (l in g) blocks.add(ocrBlock(listOf(l), w, h, regular, boldP))
             }
             return Pair(blocks, ocrLines)
         } finally {
@@ -178,7 +180,8 @@ object TextFinder {
         val sizeReg = boxW / wReg * 100f
         val sizeBold = boxW / wBold * 100f
         // Si con negrita el tamaño cuadra mejor con la altura de las letras, era negrita
-        val bold = widest.text.length >= 4 && Math.abs(sizeBold - byHeight) < Math.abs(sizeReg - byHeight)
+        // (con margen: ante la duda, letra normal)
+        val bold = widest.text.length >= 4 && Math.abs(sizeBold - byHeight) < Math.abs(sizeReg - byHeight) * 0.6f
         var sizePx = if (bold) sizeBold else sizeReg
         if (widest.text.length < 4) sizePx = byHeight
         sizePx = sizePx.coerceIn(byHeight * 0.7f, byHeight * 1.5f)
