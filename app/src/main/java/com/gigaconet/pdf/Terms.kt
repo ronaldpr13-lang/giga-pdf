@@ -25,7 +25,10 @@ Al continuar, aceptas que:<br>
 • Solo editarás documentos que sean tuyos o que tengas permiso para modificar.<br>
 • No usarás la firma de otra persona sin su autorización.<br>
 • La app se entrega "tal como está", sin garantías. El autor no responde por pérdida de archivos, daños ni por el uso que hagas de ella.<br>
-• Está prohibido vender, modificar o redistribuir la app sin permiso escrito del autor.
+• Está prohibido vender, modificar o redistribuir la app sin permiso escrito del autor.<br><br>
+<b>Contacto:</b><br>
+Tel. / WhatsApp: 809-729-0613<br>
+Correo: ronaldpr13@gmail.com
 """
 
     const val TERMINOS = """
@@ -74,7 +77,9 @@ El autor puede modificar estos Términos en cualquier momento. Cuando haya cambi
 Estos Términos se rigen por las leyes de la República Dominicana.<br><br>
 
 <b>13. Contacto</b><br>
-Ronald Pineda Rodríguez — República Dominicana.
+Ronald Pineda Rodríguez — República Dominicana.<br>
+Tel. / WhatsApp: 809-729-0613<br>
+Correo: ronaldpr13@gmail.com
 """
 
     fun accepted(ctx: Context): Boolean =
