@@ -364,7 +364,7 @@ class EditorActivity : AppCompatActivity(), PageHost {
                 Tool.EDIT_TEXT -> flash("Toca un recuadro azul para editar ese texto")
                 Tool.PEN -> flash("Dibuja con el dedo. Usa «Mover» para desplazarte.")
                 Tool.HIGHLIGHT -> {
-                    if (penColor == COLORS[0] || penColor == COLORS[1]) setPenColor(COLORS[5])
+                    if (penColor == COLORS[0] || penColor == COLORS[1]) applyPenColor(COLORS[5])
                     flash("Pasa el dedo sobre el renglón que quieres resaltar")
                 }
                 Tool.TEXT -> flash("Toca donde quieres escribir")
@@ -385,10 +385,10 @@ class EditorActivity : AppCompatActivity(), PageHost {
             val last = undo.removeLastOrNull()
             if (last == null) toast("Nada que deshacer") else last()
         }
-        setPenColor(penColor)
+        applyPenColor(penColor)
     }
 
-    private fun setPenColor(c: Int) {
+    private fun applyPenColor(c: Int) {
         penColor = c
         colorChip.chipIconTint = ColorStateList.valueOf(c)
     }
@@ -409,7 +409,7 @@ class EditorActivity : AppCompatActivity(), PageHost {
                     if (c == penColor) setStroke(dp(3), Color.parseColor("#9AA0AC"))
                 }
                 setOnClickListener {
-                    setPenColor(c)
+                    applyPenColor(c)
                     dialog?.dismiss()
                 }
             }
