@@ -48,6 +48,7 @@ class EditorActivity : AppCompatActivity(), PageHost {
         const val EXTRA_FILE = "file"
         const val EXTRA_NAME = "name"
         const val EXTRA_OCR = "ocr"
+        const val EXTRA_EDIT = "edit"
         private val COLORS = intArrayOf(
             Color.parseColor("#111111"), Color.parseColor("#1A2B6D"), Color.parseColor("#2F6FDB"),
             Color.parseColor("#D93A3A"), Color.parseColor("#1F9468"), Color.parseColor("#F2C230"),
@@ -180,6 +181,7 @@ class EditorActivity : AppCompatActivity(), PageHost {
         super.onDestroy()
         renderExec.execute {
             try { renderer?.close(); pfd?.close() } catch (e: Exception) { }
+            closePreviewRenderer()
         }
         textExec.execute { try { textDoc?.close() } catch (e: Exception) { } }
         renderExec.shutdown()
@@ -318,6 +320,10 @@ class EditorActivity : AppCompatActivity(), PageHost {
                     adapter.notifyDataSetChanged()
                     hideBusy()
                     if (firstTime && intent.getBooleanExtra(EXTRA_OCR, false)) offerOcr()
+                    if (firstTime && intent.getBooleanExtra(EXTRA_EDIT, false)) {
+                        selectTool(Tool.EDIT_TEXT, quiet = true)
+                        flash("Leyendo el texto de la foto… luego toca un recuadro para editarlo")
+                    }
                 }
             } catch (e: Throwable) {
                 runOnUiThread {
@@ -328,8 +334,8 @@ class EditorActivity : AppCompatActivity(), PageHost {
         }
     }
 
-    private fun renderPage(index: Int, width: Int): Bitmap? {
-        val r = renderer ?: return null
+    private fun renderPage(index: Int, width: Int, from: PdfRenderer? = renderer): Bitmap? {
+        val r = from ?: return null
         if (index >= r.pageCount) return null
         r.openPage(index).use { page ->
             val w = width.coerceIn(200, 2400)
@@ -345,19 +351,104 @@ class EditorActivity : AppCompatActivity(), PageHost {
     private fun renderBlocking(index: Int, width: Int): Bitmap? =
         renderExec.submit(Callable { renderPage(index, width) }).get()
 
+    private val pendingRender = HashSet<Int>()
+    private val pendingPreview = HashSet<Int>()
+
+    private fun pageWidthPx(): Int =
+        minOf((pages.width - pages.paddingLeft - pages.paddingRight).takeIf { it > 0 } ?: resources.displayMetrics.widthPixels, 1600)
+
     private fun requestBitmap(index: Int) {
+        if (!pendingRender.add(index)) return
         val gen = generation
-        val width = (pages.width - pages.paddingLeft - pages.paddingRight).takeIf { it > 0 }
-            ?: resources.displayMetrics.widthPixels
+        val width = pageWidthPx()
         renderExec.execute {
-            if (gen != generation) return@execute
-            val bmp = try { renderPage(index, minOf(width, 1600)) } catch (e: Throwable) { null } ?: return@execute
+            val bmp = if (gen != generation) null else try { renderPage(index, width) } catch (e: Throwable) { null }
             runOnUiThread {
-                if (gen != generation) return@runOnUiThread
+                pendingRender.remove(index)
+                if (gen != generation) {
+                    refreshPage(index)  // se volverá a pedir con el archivo nuevo
+                    return@runOnUiThread
+                }
+                if (bmp == null) return@runOnUiThread
                 bitmaps.put(index, bmp)
-                pageHolder(index)?.page?.bitmap = bmp
+                refreshPage(index)
             }
         }
+    }
+
+    // ---------- Vista previa real: el PDF con los cambios ya aplicados ----------
+
+    private var previewRenderer: PdfRenderer? = null
+    private var previewPfd: ParcelFileDescriptor? = null
+    private var previewGen = 0
+    private val previewBitmaps = object : LruCache<Int, Bitmap>((Runtime.getRuntime().maxMemory() / 8).toInt()) {
+        override fun sizeOf(key: Int, value: Bitmap) = value.byteCount
+    }
+
+    override fun bitmapOf(page: Int): Bitmap? {
+        if (preview) {
+            val pb = previewBitmaps.get(page)
+            if (pb != null) return pb
+            if (previewRenderer != null) requestPreviewBitmap(page)
+            return bitmaps.get(page)
+        }
+        val b = bitmaps.get(page)
+        if (b == null) requestBitmap(page)
+        return b
+    }
+
+    private fun requestPreviewBitmap(index: Int) {
+        if (!pendingPreview.add(index)) return
+        val gen = previewGen
+        val width = pageWidthPx()
+        renderExec.execute {
+            val bmp = if (gen != previewGen) null else try { renderPage(index, width, previewRenderer) } catch (e: Throwable) { null }
+            runOnUiThread {
+                pendingPreview.remove(index)
+                if (gen != previewGen || bmp == null || !preview) return@runOnUiThread
+                previewBitmaps.put(index, bmp)
+                refreshPage(index)
+            }
+        }
+    }
+
+    private fun buildPreview() {
+        previewGen++
+        val gen = previewGen
+        previewBitmaps.evictAll()
+        pendingPreview.clear()
+        val snap = annots.mapValues { it.value.toList() }.filterValues { it.isNotEmpty() }
+        if (snap.isEmpty()) return  // sin cambios: se ve el PDF tal cual
+        showBusy("Preparando vista previa…")
+        val file = File(cacheDir, "vista_previa.pdf")
+        ioExec.execute {
+            try {
+                workFile.copyTo(file, overwrite = true)
+                PdfOps.applyAnnotations(file, snap)
+                val ok = renderExec.submit(Callable {
+                    closePreviewRenderer()
+                    if (gen != previewGen) return@Callable false
+                    val p = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+                    previewPfd = p
+                    previewRenderer = PdfRenderer(p)
+                    true
+                }).get()
+                runOnUiThread {
+                    hideBusy()
+                    if (ok && gen == previewGen) refreshAll()
+                }
+            } catch (e: Throwable) {
+                runOnUiThread { hideBusy() }
+            }
+        }
+    }
+
+    /** Se llama en el hilo de dibujo. */
+    private fun closePreviewRenderer() {
+        try { previewRenderer?.close() } catch (e: Exception) { }
+        try { previewPfd?.close() } catch (e: Exception) { }
+        previewRenderer = null
+        previewPfd = null
     }
 
     private fun pageHolder(index: Int) = pages.findViewHolderForAdapterPosition(index) as? PagesAdapter.PH
@@ -473,7 +564,15 @@ class EditorActivity : AppCompatActivity(), PageHost {
         toolBar.visibility = if (on) View.GONE else View.VISIBLE
         exitPreview.visibility = if (on) View.VISIBLE else View.GONE
         toolbar.menu.findItem(R.id.m_preview)?.setIcon(if (on) R.drawable.ic_close else R.drawable.ic_eye)
-        if (on) flash("Vista previa: así quedará tu PDF") else hint.visibility = View.GONE
+        if (on) {
+            flash("Vista previa: así quedará tu PDF")
+            buildPreview()
+        } else {
+            hint.visibility = View.GONE
+            previewGen++
+            previewBitmaps.evictAll()
+            renderExec.execute { closePreviewRenderer() }
+        }
         refreshAll()
     }
 
@@ -745,7 +844,13 @@ class EditorActivity : AppCompatActivity(), PageHost {
         val y = b.firstBaseline - b.size / asp
         // Un renglón suelto crece hacia la derecha; un párrafo se acomoda al ancho original
         val maxW = if (b.text.contains('\n')) (b.box.width() - 0.15f * b.size) * 1.08f else 0f
-        return EditAnnot(RectF(b.box), bg, TextAnnot(x, y, b.text, b.size, fg, b.bold, b.lineHeight, maxW), b.text)
+        // Misma letra: la fuente original del PDF si existe; en fotos, la más parecida
+        val font = if (!b.fromOcr && b.fontName != null) "orig:" + b.fontName else familyOf(b.fontName)
+        return EditAnnot(
+            RectF(b.box), bg,
+            TextAnnot(x, y, b.text, b.size, fg, b.bold, b.lineHeight, maxW, font, b.bold),
+            b.text, fromImage = b.fromOcr
+        )
     }
 
     /**
@@ -760,7 +865,7 @@ class EditorActivity : AppCompatActivity(), PageHost {
         val list = annots.getOrPut(page) { ArrayList() }
         if (isNew) list.add(target)
         // Valores antes de editar (para cancelar o deshacer)
-        val before = arrayOf<Any>(t.text, t.size, t.bold, t.color)
+        val before = arrayOf<Any>(t.text, t.size, t.bold, t.color, t.font)
         var applied = false
         activeAnnot = target
 
@@ -776,6 +881,11 @@ class EditorActivity : AppCompatActivity(), PageHost {
         val sizeLbl = v.findViewById<TextView>(R.id.sSize)
         val boldBtn = v.findViewById<android.widget.ImageButton>(R.id.sBold)
         val colorBtn = v.findViewById<android.widget.ImageButton>(R.id.sColor)
+        val fontBtn = v.findViewById<TextView>(R.id.sFont)
+        // Letras disponibles: la original (si la hay) y tres comunes
+        val fontChoices = ArrayList<String>()
+        if (t.font.startsWith("orig:")) fontChoices.add(t.font)
+        fontChoices.addAll(listOf("sans", "serif", "mono"))
         v.findViewById<TextView>(R.id.sheetTitle).text = title
         v.findViewById<View>(R.id.sDelete).visibility = if (original != null) View.VISIBLE else View.GONE
         v.findViewById<View>(R.id.sCopy).visibility = if (original != null) View.VISIBLE else View.GONE
@@ -785,6 +895,12 @@ class EditorActivity : AppCompatActivity(), PageHost {
             boldBtn.background = androidx.core.content.ContextCompat.getDrawable(this, if (t.bold) R.drawable.bg_round_primary else R.drawable.bg_round_soft)
             boldBtn.imageTintList = ColorStateList.valueOf(if (t.bold) Color.WHITE else Color.parseColor("#1B1E26"))
             colorBtn.imageTintList = ColorStateList.valueOf(t.color)
+            fontBtn.text = fontLabel(t.font)
+            fontBtn.typeface = when (t.family) {
+                "serif" -> android.graphics.Typeface.SERIF
+                "mono" -> android.graphics.Typeface.MONOSPACE
+                else -> android.graphics.Typeface.SANS_SERIF
+            }
             refreshPage(page)
         }
 
@@ -806,6 +922,11 @@ class EditorActivity : AppCompatActivity(), PageHost {
             t.color = if (i < 0) COLORS[0] else COLORS[(i + 1) % COLORS.size]
             paintState()
         }
+        fontBtn.setOnClickListener {
+            val i = fontChoices.indexOf(t.font)
+            t.font = fontChoices[(i + 1) % fontChoices.size]
+            paintState()
+        }
         v.findViewById<View>(R.id.sCopy).setOnClickListener { copyToClipboard(original?.original ?: t.text) }
         v.findViewById<View>(R.id.sDelete).setOnClickListener {
             t.text = ""
@@ -818,12 +939,13 @@ class EditorActivity : AppCompatActivity(), PageHost {
         }
         dialog.setOnDismissListener {
             activeAnnot = null
-            val after = arrayOf<Any>(t.text, t.size, t.bold, t.color)
+            val after = arrayOf<Any>(t.text, t.size, t.bold, t.color, t.font)
             fun set(vals: Array<Any>) {
                 t.text = vals[0] as String
                 t.size = vals[1] as Float
                 t.bold = vals[2] as Boolean
                 t.color = vals[3] as Int
+                t.font = vals[4] as String
             }
             val changed = !after.contentEquals(before)
             when {
@@ -923,6 +1045,7 @@ class EditorActivity : AppCompatActivity(), PageHost {
             R.id.m_add_image -> pickImage.launch("image/*")
             R.id.m_add_pdf -> pickPdf.launch(arrayOf("application/pdf"))
             R.id.m_extract -> askExtract()
+            R.id.m_export_img -> exportImage()
             R.id.m_protect -> askProtect()
             R.id.m_pages_help -> {
                 selectTool(Tool.PAN, quiet = true)
@@ -1034,6 +1157,26 @@ class EditorActivity : AppCompatActivity(), PageHost {
                 updateUndoIcons()
                 toast(note)
                 if (thenFinish) finish()
+            }
+        }
+    }
+
+    /** Guarda la página que estás viendo como foto JPG (con los cambios). */
+    private fun exportImage() {
+        val lm = pages.layoutManager as LinearLayoutManager
+        val page = lm.findFirstVisibleItemPosition().coerceAtLeast(0)
+        withApplied("Creando imagen…") {
+            val pfdTmp = ParcelFileDescriptor.open(workFile, ParcelFileDescriptor.MODE_READ_ONLY)
+            val r = PdfRenderer(pfdTmp)
+            try {
+                val bmp = renderPage(page, 2200, r) ?: throw IllegalStateException("No se pudo dibujar la página")
+                val name = docName.removeSuffix(".pdf").removeSuffix(".PDF") + "_pag${page + 1}.jpg"
+                Store.saveImage(this, bmp, name)
+                bmp.recycle()
+                runOnUiThread { toast("Imagen guardada en Imágenes › GigaPDF") }
+            } finally {
+                r.close()
+                pfdTmp.close()
             }
         }
     }
@@ -1286,10 +1429,9 @@ class EditorActivity : AppCompatActivity(), PageHost {
             h.page.pageIndex = position
             h.page.aspect = aspects[position]
             h.label.text = "${position + 1} / ${aspects.size}"
-            val bmp = bitmaps.get(position)
-            h.page.bitmap = bmp
-            if (bmp == null) requestBitmap(position)
+            h.page.bitmap = null
             h.page.requestLayout()
+            h.page.invalidate()
             if (tool == Tool.EDIT_TEXT && blocks[position] == null) loadBlocks(position)
         }
     }

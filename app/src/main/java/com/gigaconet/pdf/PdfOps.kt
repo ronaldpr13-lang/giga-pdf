@@ -12,6 +12,9 @@ import com.tom_roush.pdfbox.pdmodel.common.PDRectangle
 import com.tom_roush.pdfbox.pdmodel.encryption.AccessPermission
 import com.tom_roush.pdfbox.pdmodel.encryption.StandardProtectionPolicy
 import com.tom_roush.pdfbox.pdmodel.font.PDFont
+import com.tom_roush.pdfbox.pdmodel.font.PDTrueTypeFont
+import com.tom_roush.pdfbox.pdmodel.font.PDType0Font
+import com.tom_roush.pdfbox.pdmodel.font.PDType1CFont
 import com.tom_roush.pdfbox.pdmodel.font.PDType1Font
 import com.tom_roush.pdfbox.pdmodel.graphics.image.JPEGFactory
 import com.tom_roush.pdfbox.pdmodel.graphics.state.PDExtendedGraphicsState
@@ -89,6 +92,22 @@ object PdfOps {
 
     fun addImagePage(file: File, bitmap: Bitmap) = edit(file) { doc ->
         addImageToDoc(doc, bitmap)
+    }
+
+    /**
+     * PDF de una sola página del tamaño exacto de la foto (sin márgenes),
+     * ideal para reconocer y editar el texto de una imagen.
+     */
+    fun photoToPdf(bitmap: Bitmap, dst: File) {
+        PDDocument().use { doc ->
+            val w = 595f
+            val h = w * bitmap.height / bitmap.width
+            val page = PDPage(PDRectangle(w, h))
+            doc.addPage(page)
+            val img = JPEGFactory.createFromImage(doc, bitmap, 0.92f)
+            PDPageContentStream(doc, page).use { cs -> cs.drawImage(img, 0f, 0f, w, h) }
+            doc.save(dst)
+        }
     }
 
     /** Crea un PDF nuevo en blanco (una página A4). */
@@ -171,14 +190,23 @@ object PdfOps {
                 if (list.isEmpty() || index >= doc.numberOfPages) continue
                 val page = doc.getPage(index)
                 val map = PageMap(page.cropBox, page.rotation)
+                // 1) Quitar de verdad el texto original que se editó (así no queda escondido debajo)
+                val edits = list.filterIsInstance<EditAnnot>()
+                val cleared: Set<EditAnnot> = if (edits.isEmpty()) emptySet() else try {
+                    TextRemover.remove(doc, index, edits)
+                } catch (e: Throwable) {
+                    emptySet()
+                }
+                // 2) Dibujar lo nuevo encima
                 PDPageContentStream(doc, page, PDPageContentStream.AppendMode.APPEND, true, true).use { cs ->
                     for (a in list) {
                         when (a) {
                             is StrokeAnnot -> drawStroke(cs, a, map)
-                            is TextAnnot -> drawText(cs, a, map)
+                            is TextAnnot -> drawText(cs, a, map, page)
                             is EditAnnot -> {
-                                fillBox(cs, a.box, a.bg, map)
-                                drawText(cs, a.text, map)
+                                // Si el texto se pudo quitar del PDF no hace falta tapar nada
+                                if (a.fromImage || a !in cleared) fillBox(cs, a.box, a.bg, map)
+                                drawText(cs, a.text, map, page)
                             }
                         }
                     }
@@ -266,9 +294,72 @@ object PdfOps {
         cs.restoreGraphicsState()
     }
 
-    private fun drawText(cs: PDPageContentStream, t: TextAnnot, m: PageMap) {
+    /** Letra para escribir: la original del PDF si sirve, si no una parecida. */
+    private fun resolveFont(page: PDPage, t: TextAnnot): PDFont {
+        if (t.font.startsWith("orig:") && t.bold == t.origBold) {
+            val wanted = t.font.removePrefix("orig:")
+            try {
+                val res = page.resources
+                if (res != null) {
+                    for (n in res.fontNames) {
+                        val f = try { res.getFont(n) } catch (e: Exception) { null } ?: continue
+                        if (f.name == wanted && canUse(f, t.text)) return f
+                    }
+                }
+            } catch (e: Exception) {
+            }
+        }
+        return when (t.family) {
+            "serif" -> if (t.bold) PDType1Font.TIMES_BOLD else PDType1Font.TIMES_ROMAN
+            "mono" -> if (t.bold) PDType1Font.COURIER_BOLD else PDType1Font.COURIER
+            else -> if (t.bold) PDType1Font.HELVETICA_BOLD else PDType1Font.HELVETICA
+        }
+    }
+
+    /**
+     * ¿La fuente original tiene todas las letras que se escribieron?
+     * (Muchos PDF solo traen las letras que usaron.)
+     */
+    fun canUse(font: PDFont, text: String): Boolean {
+        try {
+            var i = 0
+            while (i < text.length) {
+                val cp = text.codePointAt(i)
+                i += Character.charCount(cp)
+                if (cp == '\n'.code || cp == '\r'.code) continue
+                val bytes = font.encode(String(Character.toChars(cp)))
+                if (bytes.isEmpty()) return false
+                if (cp == ' '.code) continue
+                when (font) {
+                    is PDType0Font -> {
+                        val code = font.readCode(java.io.ByteArrayInputStream(bytes))
+                        if (font.codeToGID(code) == 0) return false
+                    }
+                    is PDTrueTypeFont -> {
+                        val name = font.encoding?.getName(bytes[0].toInt() and 0xFF) ?: return false
+                        if (!font.hasGlyph(name)) return false
+                    }
+                    is PDType1Font -> {
+                        val name = font.encoding?.getName(bytes[0].toInt() and 0xFF) ?: return false
+                        if (!font.isStandard14 && !font.hasGlyph(name)) return false
+                    }
+                    is PDType1CFont -> {
+                        val name = font.encoding?.getName(bytes[0].toInt() and 0xFF) ?: return false
+                        if (!font.hasGlyph(name)) return false
+                    }
+                    else -> return false
+                }
+                if (font.getWidth(font.readCode(java.io.ByteArrayInputStream(bytes))) <= 0f) return false
+            }
+            return true
+        } catch (e: Throwable) {
+            return false
+        }
+    }
+
+    private fun drawText(cs: PDPageContentStream, t: TextAnnot, m: PageMap, page: PDPage) {
         if (t.text.isBlank()) return
-        val font: PDFont = if (t.bold) PDType1Font.HELVETICA_BOLD else PDType1Font.HELVETICA
+        val font: PDFont = resolveFont(page, t)
         val sizePt = t.size * m.dispW
         val lineH = sizePt * t.lineHeight / m.dispH
         val firstBaseline = sizePt / m.dispH

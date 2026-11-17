@@ -52,6 +52,22 @@ object Store {
         return uri
     }
 
+    /** Guarda una imagen en Imágenes/GigaPDF (se ve en la galería). */
+    fun saveImage(ctx: Context, bmp: Bitmap, name: String): Uri {
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+            put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+            put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/GigaPDF")
+        }
+        val uri = ctx.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+            ?: throw IllegalStateException("No se pudo crear la imagen")
+        ctx.contentResolver.openOutputStream(uri, "w").use { out ->
+            requireNotNull(out)
+            bmp.compress(Bitmap.CompressFormat.JPEG, 95, out)
+        }
+        return uri
+    }
+
     /** Reemplaza el contenido de un documento existente (si hay permiso). */
     fun overwrite(ctx: Context, src: File, uri: Uri) {
         ctx.contentResolver.openOutputStream(uri, "wt").use { out ->

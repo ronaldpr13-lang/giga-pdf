@@ -46,8 +46,8 @@ class MainActivity : AppCompatActivity() {
         openUri(uri)
     }
 
-    private val imagesLauncher = registerForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
-        if (uris.isNullOrEmpty()) return@registerForActivityResult
+    private val imagesLauncher = registerForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(100)) { uris ->
+        if (uris.isEmpty()) return@registerForActivityResult
         work("Creando PDF con ${uris.size} foto(s)…") {
             val f = newTemp()
             PdfOps.imagesToPdf(uris.asSequence().map { Store.loadBitmap(this, it) }, f)
@@ -55,8 +55,9 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private val mergeLauncher = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
-        if (uris.isNullOrEmpty()) return@registerForActivityResult
+    private val mergeLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
+        val uris = res.data?.getStringArrayListExtra(FilesActivity.RESULT_URIS)?.map { Uri.parse(it) }
+        if (res.resultCode != RESULT_OK || uris.isNullOrEmpty()) return@registerForActivityResult
         if (uris.size < 2) {
             toast("Elige 2 o más PDF (mantén presionado para seleccionar varios)")
             return@registerForActivityResult
@@ -72,6 +73,57 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // ---------- Foto a texto ----------
+
+    private val photoPicker = registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) photoToText(uri)
+    }
+
+    private val photoScan = registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { res ->
+        if (res.resultCode != RESULT_OK) return@registerForActivityResult
+        val page = GmsDocumentScanningResult.fromActivityResultIntent(res.data)?.pages?.firstOrNull() ?: return@registerForActivityResult
+        photoToText(page.imageUri)
+    }
+
+    private fun askPhotoSource() {
+        com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+            .setTitle("Foto a texto")
+            .setMessage("Elige una foto con texto. GigaPDF lo reconoce y lo puedes editar con una letra parecida.")
+            .setPositiveButton("Galería") { _, _ ->
+                photoPicker.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            }
+            .setNeutralButton("Cámara") { _, _ ->
+                val options = GmsDocumentScannerOptions.Builder()
+                    .setGalleryImportAllowed(false)
+                    .setPageLimit(1)
+                    .setResultFormats(GmsDocumentScannerOptions.RESULT_FORMAT_JPEG)
+                    .setScannerMode(GmsDocumentScannerOptions.SCANNER_MODE_FULL)
+                    .build()
+                GmsDocumentScanning.getClient(options).getStartScanIntent(this)
+                    .addOnSuccessListener { photoScan.launch(IntentSenderRequest.Builder(it).build()) }
+                    .addOnFailureListener { toast("No se pudo abrir la cámara") }
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+
+    private fun photoToText(uri: Uri) {
+        work("Preparando la foto…") {
+            val f = newTemp()
+            val bmp = Store.loadBitmap(this, uri, 2400)
+            PdfOps.photoToPdf(bmp, f)
+            bmp.recycle()
+            runOnUiThread {
+                startActivity(
+                    Intent(this, EditorActivity::class.java)
+                        .putExtra(EditorActivity.EXTRA_FILE, f.absolutePath)
+                        .putExtra(EditorActivity.EXTRA_NAME, Store.newName("Foto_texto"))
+                        .putExtra(EditorActivity.EXTRA_EDIT, true)
+                )
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -82,12 +134,17 @@ class MainActivity : AppCompatActivity() {
         list.adapter = RecentAdapter()
 
         findViewById<View>(R.id.cardScan).setOnClickListener { startScan() }
-        findViewById<View>(R.id.cardOpen).setOnClickListener { openLauncher.launch(arrayOf("application/pdf")) }
-        findViewById<View>(R.id.cardImages).setOnClickListener { imagesLauncher.launch("image/*") }
-        findViewById<View>(R.id.cardMerge).setOnClickListener { mergeLauncher.launch(arrayOf("application/pdf")) }
+        findViewById<View>(R.id.cardOpen).setOnClickListener { startActivity(Intent(this, FilesActivity::class.java)) }
+        findViewById<View>(R.id.cardImages).setOnClickListener {
+            imagesLauncher.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+        }
+        findViewById<View>(R.id.cardMerge).setOnClickListener {
+            mergeLauncher.launch(Intent(this, FilesActivity::class.java).putExtra(FilesActivity.EXTRA_MULTI, true))
+        }
+        findViewById<View>(R.id.cardPhotoText).setOnClickListener { askPhotoSource() }
         findViewById<View>(R.id.btnTerms).setOnClickListener { Terms.show(this) }
         Terms.ensureAccepted(this) { }
-        findViewById<View>(R.id.btnBlank).setOnClickListener {
+        findViewById<View>(R.id.cardBlank).setOnClickListener {
             work("Creando…") {
                 val f = newTemp()
                 PdfOps.createBlank(f)

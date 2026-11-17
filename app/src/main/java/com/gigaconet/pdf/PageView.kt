@@ -23,6 +23,8 @@ interface PageHost {
     val penWidth: Float
     val preview: Boolean
     val activeAnnot: Annot?
+    /** Imagen de la página (la pide si todavía no está lista). */
+    fun bitmapOf(page: Int): Bitmap?
     fun annotsOf(page: Int): List<Annot>
     fun blocksOf(page: Int): List<TextBlock>?
     fun onStroke(page: Int, stroke: StrokeAnnot)
@@ -57,6 +59,13 @@ class PageView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? = nu
         pathEffect = DashPathEffect(floatArrayOf(8f, 6f), 0f)
     }
     private val blockFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#0F2F6FDB") }
+    private val editedPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        color = Color.parseColor("#CC1F9468")
+        strokeWidth = 2.5f
+        pathEffect = DashPathEffect(floatArrayOf(8f, 6f), 0f)
+    }
+    private val editedFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#141F9468") }
     private val activePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         color = Color.parseColor("#2F6FDB")
@@ -94,11 +103,15 @@ class PageView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? = nu
         val w = width.toFloat()
         val h = height.toFloat()
         canvas.drawColor(Color.WHITE)
-        bitmap?.let { canvas.drawBitmap(it, null, RectF(0f, 0f, w, h), bmpPaint) }
-        val hostRef = host ?: return
+        val hostRef = host
+        // Siempre se pide la imagen actual: así nunca queda una página en blanco
+        val bmp = if (hostRef != null) hostRef.bitmapOf(pageIndex) else bitmap
+        if (bmp != null && !bmp.isRecycled) canvas.drawBitmap(bmp, null, RectF(0f, 0f, w, h), bmpPaint)
+        if (hostRef == null) return
+        // En vista previa la imagen ya es el PDF final con los cambios aplicados
+        if (hostRef.preview) return
         for (a in hostRef.annotsOf(pageIndex)) drawAnnot(canvas, a, w, h)
         current?.let { drawAnnot(canvas, it, w, h) }
-        if (hostRef.preview) return
         val radius = 6f * resources.displayMetrics.density
         if (hostRef.tool == Tool.EDIT_TEXT) {
             val edited = hostRef.annotsOf(pageIndex).filterIsInstance<EditAnnot>().map { it.box }
@@ -107,6 +120,14 @@ class PageView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? = nu
                 val r = RectF(b.box.left * w - 3, b.box.top * h - 2, b.box.right * w + 3, b.box.bottom * h + 2)
                 canvas.drawRoundRect(r, radius, radius, blockFill)
                 canvas.drawRoundRect(r, radius, radius, blockPaint)
+            }
+            // Lo que ya editaste sigue marcado (en verde) para poder volver a tocarlo
+            for (e in hostRef.annotsOf(pageIndex).filterIsInstance<EditAnnot>()) {
+                val r = RectF(e.box.left * w - 3, e.box.top * h - 2, e.box.right * w + 3, e.box.bottom * h + 2)
+                val tw = measureTextBox(e.text, w, h)
+                if (tw != null) r.union(tw)
+                canvas.drawRoundRect(r, radius, radius, editedFill)
+                canvas.drawRoundRect(r, radius, radius, editedPaint)
             }
         }
         val active = hostRef.activeAnnot
@@ -146,11 +167,31 @@ class PageView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? = nu
         }
     }
 
+    private fun typefaceFor(t: TextAnnot): Typeface {
+        val base = when (t.family) {
+            "serif" -> Typeface.SERIF
+            "mono" -> Typeface.MONOSPACE
+            else -> Typeface.SANS_SERIF
+        }
+        return if (t.bold) Typeface.create(base, Typeface.BOLD) else base
+    }
+
+    /** Rectángulo que ocupa un texto en pantalla (para marcarlo). */
+    private fun measureTextBox(t: TextAnnot, w: Float, h: Float): RectF? {
+        if (t.text.isEmpty()) return null
+        textPaint.textSize = t.size * w
+        textPaint.typeface = typefaceFor(t)
+        val lines = wrapText(t.text, t.maxWidth * w) { textPaint.measureText(it) }
+        val maxW = lines.maxOf { textPaint.measureText(it) }
+        val height = textPaint.textSize * (1f + (lines.size - 1) * t.lineHeight) + textPaint.textSize * 0.3f
+        return RectF(t.x * w - 3, t.y * h, t.x * w + maxW + 3, t.y * h + height)
+    }
+
     private fun drawText(c: Canvas, t: TextAnnot, w: Float, h: Float) {
         if (t.text.isEmpty()) return
         textPaint.color = t.color
         textPaint.textSize = t.size * w
-        textPaint.typeface = if (t.bold) Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD) else Typeface.SANS_SERIF
+        textPaint.typeface = typefaceFor(t)
         val lines = wrapText(t.text, t.maxWidth * w) { textPaint.measureText(it) }
         var y = t.y * h + textPaint.textSize
         for (line in lines) {

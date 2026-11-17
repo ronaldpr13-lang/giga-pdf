@@ -18,9 +18,9 @@ import kotlin.math.abs
  */
 object TextFinder {
 
-    private class Word(val x0: Float, val x1: Float, val base: Float, val size: Float, val text: String, val bold: Boolean)
+    private class Word(val x0: Float, val x1: Float, val base: Float, val size: Float, val text: String, val bold: Boolean, val font: String)
 
-    private class Line(var x0: Float, var x1: Float, val base: Float, val size: Float, val sb: StringBuilder, var bold: Boolean)
+    private class Line(var x0: Float, var x1: Float, val base: Float, val size: Float, val sb: StringBuilder, var bold: Boolean, val font: String)
 
     private class Collector(val out: MutableList<Word>) : PDFTextStripper() {
         init {
@@ -33,6 +33,7 @@ object TextFinder {
             var x1 = -Float.MAX_VALUE
             val sizes = ArrayList<Float>()
             var bold = false
+            var font = ""
             for (tp in textPositions) {
                 x0 = minOf(x0, tp.xDirAdj)
                 x1 = maxOf(x1, tp.xDirAdj + tp.widthDirAdj)
@@ -40,11 +41,12 @@ object TextFinder {
                 if (s <= 0.5f) s = tp.heightDir / 0.7f
                 if (s > 0f) sizes.add(s)
                 val fname = try { tp.font?.name ?: "" } catch (e: Exception) { "" }
+                if (font.isEmpty()) font = fname
                 if (fname.contains("Bold", true) || fname.contains("Black", true) || fname.contains("Heavy", true)) bold = true
             }
             if (sizes.isEmpty()) return
             sizes.sort()
-            out.add(Word(x0, x1, textPositions[0].yDirAdj, sizes[sizes.size / 2], text.trim(), bold))
+            out.add(Word(x0, x1, textPositions[0].yDirAdj, sizes[sizes.size / 2], text.trim(), bold, font))
         }
     }
 
@@ -73,7 +75,7 @@ object TextFinder {
                 l.x1 = maxOf(l.x1, w.x1)
                 l.bold = l.bold && w.bold
             } else {
-                lines.add(Line(w.x0, w.x1, w.base, w.size, StringBuilder(w.text), w.bold))
+                lines.add(Line(w.x0, w.x1, w.base, w.size, StringBuilder(w.text), w.bold, w.font))
             }
         }
 
@@ -108,7 +110,8 @@ object TextFinder {
                 firstBaseline = b.first().base / dispH,
                 lineHeight = lh.coerceIn(1.0f, 2.2f),
                 bold = b.all { it.bold },
-                fromOcr = false
+                fromOcr = false,
+                fontName = b.groupingBy { it.font }.eachCount().maxByOrNull { it.value }?.key
             )
         }
     }

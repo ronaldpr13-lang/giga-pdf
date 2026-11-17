@@ -33,8 +33,34 @@ class TextAnnot(
     var color: Int,
     var bold: Boolean = false,
     var lineHeight: Float = 1.25f,
-    var maxWidth: Float = 0f
-) : Annot()
+    var maxWidth: Float = 0f,
+    /** "sans", "serif", "mono" u "orig:<nombre>" para usar la letra original del PDF. */
+    var font: String = "sans",
+    /** Si la letra original era negrita (para saber si el usuario la cambió). */
+    val origBold: Boolean = false
+) : Annot() {
+    /** Familia para dibujar en pantalla y para la letra de respaldo. */
+    val family: String get() = if (font.startsWith("orig:")) familyOf(font.removePrefix("orig:")) else font
+}
+
+/** Adivina la familia (sans / serif / mono) por el nombre de la fuente del PDF. */
+fun familyOf(fontName: String?): String {
+    val n = (fontName ?: "").lowercase()
+    return when {
+        listOf("courier", "mono", "consol", "typewriter").any { n.contains(it) } -> "mono"
+        listOf("times", "serif", "roman", "georgia", "garamond", "cambria", "book", "palatino", "minion").any { n.contains(it) } &&
+            !n.contains("sans") -> "serif"
+        else -> "sans"
+    }
+}
+
+/** Nombre corto de la letra para mostrar en el botón. */
+fun fontLabel(font: String): String = when {
+    font.startsWith("orig:") -> "Original"
+    font == "serif" -> "Times"
+    font == "mono" -> "Courier"
+    else -> "Arial"
+}
 
 /**
  * Edición de un texto que ya existía en el PDF: tapa el original con el
@@ -44,7 +70,9 @@ class EditAnnot(
     val box: RectF,
     val bg: Int,
     val text: TextAnnot,
-    val original: String
+    val original: String,
+    /** true si el texto viene de una foto/escaneo (hay que tapar los píxeles). */
+    val fromImage: Boolean = false
 ) : Annot()
 
 /** Bloque de texto detectado en una página (del PDF o reconocido por OCR). */
@@ -55,7 +83,8 @@ class TextBlock(
     val firstBaseline: Float,
     val lineHeight: Float,
     val bold: Boolean,
-    val fromOcr: Boolean
+    val fromOcr: Boolean,
+    val fontName: String? = null
 )
 
 /** Una línea reconocida por OCR (para crear la capa de texto invisible). */

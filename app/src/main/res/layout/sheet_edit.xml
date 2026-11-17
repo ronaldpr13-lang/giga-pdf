@@ -89,7 +89,7 @@
 
         <TextView
             android:id="@+id/sSize"
-            android:layout_width="48dp"
+            android:layout_width="36dp"
             android:layout_height="wrap_content"
             android:gravity="center"
             android:textColor="@color/text"
@@ -110,13 +110,27 @@
             android:id="@+id/sBold"
             android:layout_width="42dp"
             android:layout_height="42dp"
-            android:layout_marginStart="12dp"
+            android:layout_marginStart="10dp"
             android:background="@drawable/bg_round_soft"
             android:contentDescription="Negrita"
             android:padding="10dp"
             android:scaleType="fitCenter"
             android:src="@drawable/ic_bold"
             app:tint="@color/text" />
+
+        <TextView
+            android:id="@+id/sFont"
+            android:layout_width="wrap_content"
+            android:layout_height="42dp"
+            android:layout_marginStart="8dp"
+            android:background="@drawable/bg_pill_soft"
+            android:gravity="center"
+            android:minWidth="64dp"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:text="Arial"
+            android:textColor="@color/text"
+            android:textSize="14sp" />
 
         <ImageButton
             android:id="@+id/sColor"
@@ -151,7 +165,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
-        android:text="Los cambios se ven en vivo en la página"
+        android:text="Los cambios se ven en vivo en la página. Toca «Original/Arial» para cambiar la letra."
         android:textColor="@color/text_soft"
         android:textSize="12sp" />
 </LinearLayout>
