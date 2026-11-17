@@ -1,0 +1,157 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingStart="16dp"
+    android:paddingEnd="16dp"
+    android:paddingBottom="14dp">
+
+    <View
+        android:layout_width="36dp"
+        android:layout_height="5dp"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="8dp"
+        android:background="@drawable/bg_sheet_handle" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/sheetTitle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:fontFamily="sans-serif-medium"
+            android:text="Editar texto"
+            android:textColor="@color/text"
+            android:textSize="16sp" />
+
+        <ImageButton
+            android:id="@+id/sCopy"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Copiar"
+            android:padding="10dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_copy"
+            app:tint="@color/text_soft" />
+
+        <ImageButton
+            android:id="@+id/sDelete"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Borrar texto"
+            android:padding="10dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_delete"
+            app:tint="@color/text_soft" />
+    </LinearLayout>
+
+    <EditText
+        android:id="@+id/sInput"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:background="@drawable/bg_input"
+        android:gravity="top"
+        android:inputType="textMultiLine|textCapSentences"
+        android:maxLines="6"
+        android:minLines="2"
+        android:padding="12dp"
+        android:textColor="@color/text"
+        android:textSize="16sp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <ImageButton
+            android:id="@+id/sSmaller"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
+            android:background="@drawable/bg_round_soft"
+            android:contentDescription="Letra más pequeña"
+            android:padding="11dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_minus"
+            app:tint="@color/text" />
+
+        <TextView
+            android:id="@+id/sSize"
+            android:layout_width="48dp"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:textColor="@color/text"
+            android:textSize="14sp" />
+
+        <ImageButton
+            android:id="@+id/sBigger"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
+            android:background="@drawable/bg_round_soft"
+            android:contentDescription="Letra más grande"
+            android:padding="11dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_add"
+            app:tint="@color/text" />
+
+        <ImageButton
+            android:id="@+id/sBold"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
+            android:layout_marginStart="12dp"
+            android:background="@drawable/bg_round_soft"
+            android:contentDescription="Negrita"
+            android:padding="10dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_bold"
+            app:tint="@color/text" />
+
+        <ImageButton
+            android:id="@+id/sColor"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
+            android:layout_marginStart="8dp"
+            android:background="@drawable/bg_round_soft"
+            android:contentDescription="Color"
+            android:padding="9dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_circle" />
+
+        <View
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1" />
+
+        <ImageButton
+            android:id="@+id/sApply"
+            android:layout_width="52dp"
+            android:layout_height="52dp"
+            android:background="@drawable/bg_round_primary"
+            android:contentDescription="Aplicar"
+            android:padding="13dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_check"
+            app:tint="@color/on_primary" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/sNote"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="Los cambios se ven en vivo en la página"
+        android:textColor="@color/text_soft"
+        android:textSize="12sp" />
+</LinearLayout>

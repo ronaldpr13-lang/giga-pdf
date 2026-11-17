@@ -11,8 +11,8 @@ android {
         applicationId = "com.gigaconet.pdf"
         minSdk = 29
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1"
     }
 
     // Firma fija: cada versión nueva se instala encima de la anterior

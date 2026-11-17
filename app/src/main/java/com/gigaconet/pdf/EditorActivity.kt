@@ -34,8 +34,6 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.button.MaterialButton
-import com.google.android.material.chip.Chip
-import com.google.android.material.chip.ChipGroup
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.encryption.InvalidPasswordException
@@ -73,7 +71,9 @@ class EditorActivity : AppCompatActivity(), PageHost {
     @Volatile private var generation = 0
 
     private val annots = HashMap<Int, MutableList<Annot>>()
-    private val undo = ArrayList<() -> Unit>()
+    private class Action(val undo: () -> Unit, val redo: () -> Unit)
+    private val undoStack = ArrayList<Action>()
+    private val redoStack = ArrayList<Action>()
     private val blocks = HashMap<Int, List<TextBlock>>()
     private val loadingBlocks = HashSet<Int>()
     private var textDoc: PDDocument? = null
@@ -85,12 +85,18 @@ class EditorActivity : AppCompatActivity(), PageHost {
     override var tool = Tool.PAN
     override var penColor = COLORS[1]
     override var penWidth = 0.004f
+    override var preview = false
+    override var activeAnnot: Annot? = null
 
     private lateinit var toolbar: MaterialToolbar
     private lateinit var pages: RecyclerView
     private lateinit var busy: View
     private lateinit var hint: TextView
-    private lateinit var colorChip: Chip
+    private lateinit var toolBar: View
+    private lateinit var exitPreview: View
+    private lateinit var pageIndicator: TextView
+    private val toolViews = HashMap<Tool, View>()
+    private var colorDot: android.widget.ImageView? = null
     private val adapter = PagesAdapter()
 
     private val pickImage = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -118,7 +124,10 @@ class EditorActivity : AppCompatActivity(), PageHost {
         pages = findViewById(R.id.pages)
         busy = findViewById(R.id.busy)
         hint = findViewById(R.id.hint)
-        colorChip = findViewById(R.id.btnColor)
+        toolBar = findViewById(R.id.toolBar)
+        exitPreview = findViewById(R.id.btnExitPreview)
+        pageIndicator = findViewById(R.id.pageIndicator)
+        exitPreview.setOnClickListener { setPreview(false) }
 
         toolbar.inflateMenu(R.menu.editor)
         toolbar.setNavigationOnClickListener { onBackPressedDispatcher.onBackPressed() }
@@ -127,11 +136,26 @@ class EditorActivity : AppCompatActivity(), PageHost {
         pages.layoutManager = LinearLayoutManager(this)
         pages.adapter = adapter
         pages.setItemViewCacheSize(4)
+        pages.addOnScrollListener(object : RecyclerView.OnScrollListener() {
+            override fun onScrolled(rv: RecyclerView, dx: Int, dy: Int) {
+                if (aspects.size < 2) return
+                val lm = rv.layoutManager as LinearLayoutManager
+                val first = lm.findFirstVisibleItemPosition().coerceAtLeast(0)
+                pageIndicator.text = "${first + 1} / ${aspects.size}"
+                pageIndicator.visibility = View.VISIBLE
+                pageIndicator.removeCallbacks(hideIndicator)
+                pageIndicator.postDelayed(hideIndicator, 1500)
+            }
+        })
 
         setupTools()
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
+                if (preview) {
+                    setPreview(false)
+                    return
+                }
                 if (!dirty && hasAnnots().not()) {
                     finish()
                     return
@@ -289,7 +313,7 @@ class EditorActivity : AppCompatActivity(), PageHost {
                 runOnUiThread {
                     if (gen != generation) return@runOnUiThread
                     aspects = list
-                    toolbar.subtitle = if (list.size == 1) "1 página" else "${list.size} páginas"
+                    updateUndoIcons()
                     adapter.notifyDataSetChanged()
                     hideBusy()
                     if (firstTime && intent.getBooleanExtra(EXTRA_OCR, false)) offerOcr()
@@ -345,52 +369,152 @@ class EditorActivity : AppCompatActivity(), PageHost {
     // Herramientas
     // ------------------------------------------------------------------
 
+    private val hideIndicator = Runnable { pageIndicator.visibility = View.GONE }
+
+    /** Barra de herramientas de abajo: solo iconos con su nombre pequeño. */
     private fun setupTools() {
-        val group = findViewById<ChipGroup>(R.id.tools)
-        group.check(R.id.toolPan)
-        group.setOnCheckedStateChangeListener { _, ids ->
-            val id = ids.firstOrNull() ?: R.id.toolPan
-            tool = when (id) {
-                R.id.toolEditText -> Tool.EDIT_TEXT
-                R.id.toolPen -> Tool.PEN
-                R.id.toolHighlight -> Tool.HIGHLIGHT
-                R.id.toolText -> Tool.TEXT
-                R.id.toolSign -> Tool.SIGN
-                R.id.toolErase -> Tool.ERASE
-                else -> Tool.PAN
-            }
-            when (tool) {
-                Tool.PAN -> flash("Desliza para ver las páginas. Mantén presionada una página para organizarla.")
-                Tool.EDIT_TEXT -> flash("Toca un recuadro azul para editar ese texto")
-                Tool.PEN -> flash("Dibuja con el dedo. Usa «Mover» para desplazarte.")
-                Tool.HIGHLIGHT -> {
-                    if (penColor == COLORS[0] || penColor == COLORS[1]) applyPenColor(COLORS[5])
-                    flash("Pasa el dedo sobre el renglón que quieres resaltar")
-                }
-                Tool.TEXT -> flash("Toca donde quieres escribir")
-                Tool.SIGN -> {
-                    if (Store.signature(this) == null) showSignatureDialog()
-                    else flash("Toca donde va la firma. Mantén presionado «Firma» para cambiarla.")
-                }
-                Tool.ERASE -> flash("Pasa el dedo sobre lo que quieres borrar")
-            }
-            for (i in 0 until adapter.itemCount) refreshPage(i)
+        val row = findViewById<LinearLayout>(R.id.toolRow)
+        val items = listOf(
+            Triple(Tool.PAN, R.drawable.ic_pan, "Mover"),
+            Triple(Tool.EDIT_TEXT, R.drawable.ic_edit_text, "Editar"),
+            Triple(Tool.PEN, R.drawable.ic_pen, "Lápiz"),
+            Triple(Tool.HIGHLIGHT, R.drawable.ic_highlight, "Resaltar"),
+            Triple(Tool.TEXT, R.drawable.ic_text, "Texto"),
+            Triple(Tool.SIGN, R.drawable.ic_sign, "Firma"),
+            Triple(Tool.ERASE, R.drawable.ic_eraser, "Borrar")
+        )
+        for ((t, icon, label) in items) {
+            val v = toolItem(icon, label)
+            v.setOnClickListener { selectTool(t) }
+            if (t == Tool.SIGN) v.setOnLongClickListener { showSignatureDialog(); true }
+            toolViews[t] = v
+            row.addView(v)
         }
-        findViewById<View>(R.id.toolSign).setOnLongClickListener {
-            showSignatureDialog()
-            true
-        }
-        colorChip.setOnClickListener { showStyleDialog() }
-        findViewById<View>(R.id.btnUndo).setOnClickListener {
-            val last = undo.removeLastOrNull()
-            if (last == null) toast("Nada que deshacer") else last()
-        }
+        row.addView(View(this).apply { setBackgroundColor(Color.parseColor("#E2E5EC")) },
+            LinearLayout.LayoutParams(dp(1), dp(30)).apply { setMargins(dp(4), 0, dp(4), 0) })
+        val color = toolItem(R.drawable.ic_circle, "Color")
+        colorDot = color.findViewWithTag("icon")
+        color.setOnClickListener { showStyleDialog() }
+        row.addView(color)
+        selectTool(Tool.PAN, quiet = true)
         applyPenColor(penColor)
+    }
+
+    private fun toolItem(icon: Int, label: String): View {
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(4), dp(2), dp(4), dp(2))
+            background = with(TypedValue()) {
+                theme.resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, this, true)
+                androidx.core.content.ContextCompat.getDrawable(this@EditorActivity, resourceId)
+            }
+        }
+        val img = android.widget.ImageView(this).apply {
+            tag = "icon"
+            setImageResource(icon)
+            setPadding(dp(14), dp(5), dp(14), dp(5))
+        }
+        box.addView(img, LinearLayout.LayoutParams(dp(54), dp(32)))
+        box.addView(TextView(this).apply {
+            tag = "label"
+            text = label
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+            gravity = Gravity.CENTER
+            setPadding(0, dp(3), 0, 0)
+        })
+        box.layoutParams = LinearLayout.LayoutParams(dp(64), ViewGroup.LayoutParams.WRAP_CONTENT)
+        return box
+    }
+
+    private fun selectTool(t: Tool, quiet: Boolean = false) {
+        tool = t
+        val primary = Color.parseColor("#D93A3A")
+        val normal = Color.parseColor("#3A3F4B")
+        for ((key, v) in toolViews) {
+            val on = key == t
+            val img = v.findViewWithTag<android.widget.ImageView>("icon")
+            val lbl = v.findViewWithTag<TextView>("label")
+            img.background = if (on) android.graphics.drawable.GradientDrawable().apply {
+                cornerRadius = dp(16).toFloat()
+                setColor(Color.parseColor("#FBE3E1"))
+            } else null
+            img.imageTintList = ColorStateList.valueOf(if (on) primary else normal)
+            lbl.setTextColor(if (on) primary else Color.parseColor("#646B7A"))
+            lbl.typeface = if (on) android.graphics.Typeface.DEFAULT_BOLD else android.graphics.Typeface.DEFAULT
+        }
+        if (!quiet) when (t) {
+            Tool.PAN -> flash("Desliza para ver las páginas. Mantén presionada una página para organizarla.")
+            Tool.EDIT_TEXT -> flash("Toca un texto para editarlo. Toca un espacio vacío para ver la vista previa.")
+            Tool.PEN -> flash("Dibuja con el dedo. Usa «Mover» para desplazarte.")
+            Tool.HIGHLIGHT -> {
+                if (penColor == COLORS[0] || penColor == COLORS[1]) applyPenColor(COLORS[5])
+                flash("Pasa el dedo sobre el renglón que quieres resaltar")
+            }
+            Tool.TEXT -> flash("Toca donde quieres escribir")
+            Tool.SIGN -> {
+                if (Store.signature(this) == null) showSignatureDialog()
+                else flash("Toca donde va la firma. Mantén presionado «Firma» para cambiarla.")
+            }
+            Tool.ERASE -> flash("Pasa el dedo sobre lo que quieres borrar")
+        }
+        refreshAll()
+    }
+
+    private fun refreshAll() {
+        for (i in 0 until adapter.itemCount) refreshPage(i)
+    }
+
+    /** Vista previa: esconde recuadros y herramientas para ver cómo queda. */
+    private fun setPreview(on: Boolean) {
+        if (preview == on) return
+        preview = on
+        toolBar.visibility = if (on) View.GONE else View.VISIBLE
+        exitPreview.visibility = if (on) View.VISIBLE else View.GONE
+        toolbar.menu.findItem(R.id.m_preview)?.setIcon(if (on) R.drawable.ic_close else R.drawable.ic_eye)
+        if (on) flash("Vista previa: así quedará tu PDF") else hint.visibility = View.GONE
+        refreshAll()
     }
 
     private fun applyPenColor(c: Int) {
         penColor = c
-        colorChip.chipIconTint = ColorStateList.valueOf(c)
+        colorDot?.imageTintList = ColorStateList.valueOf(c)
+    }
+
+    private fun push(a: Action) {
+        undoStack.add(a)
+        redoStack.clear()
+        updateUndoIcons()
+    }
+
+    private fun doUndo() {
+        val a = undoStack.removeLastOrNull()
+        if (a == null) {
+            toast("Nada que deshacer")
+            return
+        }
+        a.undo()
+        redoStack.add(a)
+        updateUndoIcons()
+    }
+
+    private fun doRedo() {
+        val a = redoStack.removeLastOrNull()
+        if (a == null) {
+            toast("Nada que rehacer")
+            return
+        }
+        a.redo()
+        undoStack.add(a)
+        updateUndoIcons()
+    }
+
+    private fun updateUndoIcons() {
+        toolbar.menu.findItem(R.id.m_undo)?.icon?.alpha = if (undoStack.isEmpty()) 90 else 255
+        toolbar.menu.findItem(R.id.m_redo)?.icon?.alpha = if (redoStack.isEmpty()) 90 else 255
+        val n = aspects.size
+        val pagesTxt = if (n == 1) "1 página" else "$n páginas"
+        toolbar.subtitle = if (dirty || hasAnnots()) "$pagesTxt · sin guardar" else pagesTxt
     }
 
     private fun showStyleDialog() {
@@ -456,23 +580,34 @@ class EditorActivity : AppCompatActivity(), PageHost {
 
     private fun addAnnot(page: Int, a: Annot) {
         annots.getOrPut(page) { ArrayList() }.add(a)
-        undo.add {
-            annots[page]?.remove(a)
-            refreshPage(page)
-        }
+        push(Action(
+            undo = { annots[page]?.remove(a); refreshPage(page) },
+            redo = { annots.getOrPut(page) { ArrayList() }.add(a); refreshPage(page) }
+        ))
         refreshPage(page)
     }
 
     override fun onStroke(page: Int, stroke: StrokeAnnot) = addAnnot(page, stroke)
 
     override fun onTap(page: Int, x: Float, y: Float) {
+        if (preview) {
+            setPreview(false)
+            return
+        }
         when (tool) {
             Tool.TEXT -> {
-                showTextDialog("Añadir texto", "", 0.03f, false, false) { text, size, bold ->
-                    if (text.isBlank()) return@showTextDialog
-                    val asp = aspects.getOrElse(page) { 1.414f }
-                    addAnnot(page, TextAnnot(x, (y - size / asp / 2f).coerceAtLeast(0f), text, size, penColor, bold, 1.25f, (0.97f - x).coerceAtLeast(0.2f)))
+                val asp = aspects.getOrElse(page) { 1.414f }
+                val existing = annots[page]?.lastOrNull { a ->
+                    a is TextAnnot && x in a.x..(a.x + (if (a.maxWidth > 0f) a.maxWidth else 0.3f)) &&
+                        y in a.y..(a.y + a.text.split("\n").size * a.size * a.lineHeight / asp)
+                } as? TextAnnot
+                if (existing != null) {
+                    showEditSheet(page, existing, isNew = false, title = "Editar texto", original = null)
+                    return
                 }
+                val size = 0.03f
+                val t = TextAnnot(x, (y - size / asp / 2f).coerceAtLeast(0f), "", size, penColor, false, 1.25f, (0.97f - x).coerceAtLeast(0.2f))
+                showEditSheet(page, t, isNew = true, title = "Añadir texto", original = null)
             }
             Tool.SIGN -> {
                 val sig = Store.signature(this)
@@ -501,10 +636,14 @@ class EditorActivity : AppCompatActivity(), PageHost {
         } ?: return
         val idx = list.indexOf(hit)
         list.remove(hit)
-        undo.add {
-            annots.getOrPut(page) { ArrayList() }.add(idx.coerceAtMost(annots[page]!!.size), hit)
-            refreshPage(page)
-        }
+        push(Action(
+            undo = {
+                val l = annots.getOrPut(page) { ArrayList() }
+                l.add(idx.coerceAtMost(l.size), hit)
+                refreshPage(page)
+            },
+            redo = { annots[page]?.remove(hit); refreshPage(page) }
+        ))
         refreshPage(page)
     }
 
@@ -574,14 +713,10 @@ class EditorActivity : AppCompatActivity(), PageHost {
 
     private fun tapEditText(page: Int, x: Float, y: Float) {
         val list = annots[page]
-        // ¿Tocaste un texto que ya editaste? Se vuelve a abrir
-        val prev = list?.lastOrNull { it is EditAnnot && it.box.contains(x, y) } as? EditAnnot
+        // ¿Tocaste un texto que ya editaste o añadiste? Se vuelve a abrir
+        val prev = list?.lastOrNull { it is EditAnnot && RectF(it.box).apply { inset(-0.005f, -0.004f) }.contains(x, y) } as? EditAnnot
         if (prev != null) {
-            showTextDialog("Editar texto", prev.text.text, prev.text.size, prev.text.bold, true) { text, size, bold ->
-                val t = prev.text
-                val newAnnot = EditAnnot(prev.box, prev.bg, TextAnnot(t.x, t.y, text, size, t.color, bold, t.lineHeight, t.maxWidth), prev.original)
-                replaceAnnot(page, prev, newAnnot)
-            }
+            showEditSheet(page, prev.text, isNew = false, title = "Editar texto", original = prev)
             return
         }
         val bl = blocks[page]
@@ -593,110 +728,134 @@ class EditorActivity : AppCompatActivity(), PageHost {
         val block = bl.filter { RectF(it.box).apply { inset(-0.01f, -0.006f) }.contains(x, y) }
             .minByOrNull { it.box.width() * it.box.height() }
         if (block == null) {
-            flash("Toca dentro de un recuadro azul")
+            // Tocaste un espacio vacío: vista previa
+            setPreview(true)
             return
         }
-        val preview = block.text.replace("\n", " ").let { if (it.length > 60) it.take(60) + "…" else it }
-        MaterialAlertDialogBuilder(this)
-            .setTitle(preview)
-            .setItems(arrayOf("Editar texto", "Borrar este texto", "Copiar texto")) { _, which ->
-                when (which) {
-                    0 -> showTextDialog("Editar texto", block.text, block.size, block.bold, true) { text, size, bold ->
-                        addAnnot(page, makeEdit(page, block, text, size, bold))
-                    }
-                    1 -> addAnnot(page, makeEdit(page, block, "", block.size, block.bold))
-                    2 -> copyToClipboard(block.text)
-                }
-            }
-            .show()
+        val edit = makeEdit(page, block)
+        showEditSheet(page, edit.text, isNew = true, title = "Editar texto", original = edit)
     }
 
-    private fun makeEdit(page: Int, b: TextBlock, text: String, size: Float, bold: Boolean): EditAnnot {
+    private fun makeEdit(page: Int, b: TextBlock): EditAnnot {
         val bmp = bitmaps.get(page)
         val (bg, fg) = if (bmp != null && !bmp.isRecycled) TextFinder.sampleColors(bmp, b.box) else Pair(Color.WHITE, Color.BLACK)
         val asp = aspects.getOrElse(page) { 1.414f }
         val x = b.box.left + 0.15f * b.size
         val y = b.firstBaseline - b.size / asp
-        val maxW = (b.box.width() - 0.15f * b.size) * 1.08f
-        return EditAnnot(RectF(b.box), bg, TextAnnot(x, y, text, size, fg, bold, b.lineHeight, maxW), b.text)
+        // Un renglón suelto crece hacia la derecha; un párrafo se acomoda al ancho original
+        val maxW = if (b.text.contains('\n')) (b.box.width() - 0.15f * b.size) * 1.08f else 0f
+        return EditAnnot(RectF(b.box), bg, TextAnnot(x, y, b.text, b.size, fg, b.bold, b.lineHeight, maxW), b.text)
     }
 
-    private fun replaceAnnot(page: Int, old: Annot, new: Annot) {
+    /**
+     * Panel de edición abajo. Mientras escribes, la página se actualiza en vivo
+     * (vista previa inmediata). Con ✓ se aplica; si lo cierras, se descarta.
+     *
+     * [t] es el texto que se edita; [original] es la edición que lo contiene
+     * (null cuando es un texto añadido con la herramienta Texto).
+     */
+    private fun showEditSheet(page: Int, t: TextAnnot, isNew: Boolean, title: String, original: EditAnnot?) {
+        val target: Annot = original ?: t
         val list = annots.getOrPut(page) { ArrayList() }
-        val idx = list.indexOf(old)
-        if (idx >= 0) list[idx] = new else list.add(new)
-        undo.add {
-            val l = annots[page]
-            if (l != null) {
-                val i = l.indexOf(new)
-                if (i >= 0) l[i] = old
-            }
+        if (isNew) list.add(target)
+        // Valores antes de editar (para cancelar o deshacer)
+        val before = arrayOf<Any>(t.text, t.size, t.bold, t.color)
+        var applied = false
+        activeAnnot = target
+
+        val dialog = com.google.android.material.bottomsheet.BottomSheetDialog(this)
+        val v = layoutInflater.inflate(R.layout.sheet_edit, null)
+        dialog.setContentView(v)
+        dialog.window?.setDimAmount(0f)
+        dialog.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE or android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
+        dialog.behavior.state = com.google.android.material.bottomsheet.BottomSheetBehavior.STATE_EXPANDED
+        dialog.behavior.skipCollapsed = true
+
+        val input = v.findViewById<EditText>(R.id.sInput)
+        val sizeLbl = v.findViewById<TextView>(R.id.sSize)
+        val boldBtn = v.findViewById<android.widget.ImageButton>(R.id.sBold)
+        val colorBtn = v.findViewById<android.widget.ImageButton>(R.id.sColor)
+        v.findViewById<TextView>(R.id.sheetTitle).text = title
+        v.findViewById<View>(R.id.sDelete).visibility = if (original != null) View.VISIBLE else View.GONE
+        v.findViewById<View>(R.id.sCopy).visibility = if (original != null) View.VISIBLE else View.GONE
+
+        fun paintState() {
+            sizeLbl.text = "%.0f".format(t.size * 595f)
+            boldBtn.background = androidx.core.content.ContextCompat.getDrawable(this, if (t.bold) R.drawable.bg_round_primary else R.drawable.bg_round_soft)
+            boldBtn.imageTintList = ColorStateList.valueOf(if (t.bold) Color.WHITE else Color.parseColor("#1B1E26"))
+            colorBtn.imageTintList = ColorStateList.valueOf(t.color)
             refreshPage(page)
         }
-        refreshPage(page)
+
+        input.setText(t.text)
+        input.setSelection(input.text.length)
+        input.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) {
+                t.text = s?.toString() ?: ""
+                refreshPage(page)
+            }
+        })
+        v.findViewById<View>(R.id.sSmaller).setOnClickListener { t.size = (t.size / 1.08f).coerceAtLeast(0.006f); paintState() }
+        v.findViewById<View>(R.id.sBigger).setOnClickListener { t.size = (t.size * 1.08f).coerceAtMost(0.2f); paintState() }
+        boldBtn.setOnClickListener { t.bold = !t.bold; paintState() }
+        colorBtn.setOnClickListener {
+            val i = COLORS.indexOfFirst { it == t.color }
+            t.color = if (i < 0) COLORS[0] else COLORS[(i + 1) % COLORS.size]
+            paintState()
+        }
+        v.findViewById<View>(R.id.sCopy).setOnClickListener { copyToClipboard(original?.original ?: t.text) }
+        v.findViewById<View>(R.id.sDelete).setOnClickListener {
+            t.text = ""
+            applied = true
+            dialog.dismiss()
+        }
+        v.findViewById<View>(R.id.sApply).setOnClickListener {
+            applied = true
+            dialog.dismiss()
+        }
+        dialog.setOnDismissListener {
+            activeAnnot = null
+            val after = arrayOf<Any>(t.text, t.size, t.bold, t.color)
+            fun set(vals: Array<Any>) {
+                t.text = vals[0] as String
+                t.size = vals[1] as Float
+                t.bold = vals[2] as Boolean
+                t.color = vals[3] as Int
+            }
+            val changed = !after.contentEquals(before)
+            when {
+                !applied || (isNew && original == null && t.text.isBlank()) || (!isNew && !changed) || (isNew && original != null && !changed) -> {
+                    // Se descarta: todo vuelve como estaba
+                    set(before)
+                    if (isNew) annots[page]?.remove(target)
+                }
+                isNew -> push(Action(
+                    undo = { annots[page]?.remove(target); refreshPage(page) },
+                    redo = { annots.getOrPut(page) { ArrayList() }.add(target); refreshPage(page) }
+                ))
+                else -> push(Action(
+                    undo = { set(before); refreshPage(page) },
+                    redo = { set(after); refreshPage(page) }
+                ))
+            }
+            refreshPage(page)
+            updateUndoIcons()
+        }
+        paintState()
+        dialog.show()
+        input.requestFocus()
+        scrollToShow(page, t.y)
     }
 
-    /** Ventana para escribir o corregir un texto, con tamaño y negrita. */
-    private fun showTextDialog(
-        title: String, initial: String, size: Float, bold: Boolean, isEdit: Boolean,
-        onApply: (String, Float, Boolean) -> Unit
-    ) {
-        var curSize = size
-        val box = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(6), dp(20), 0)
-        }
-        val input = EditText(this).apply {
-            setText(initial)
-            setSelection(text.length)
-            minLines = 2
-            maxLines = 10
-            gravity = Gravity.TOP
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
-        }
-        box.addView(input)
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, dp(8), 0, 0)
-        }
-        val label = TextView(this)
-        fun updateLabel() {
-            label.text = "Tamaño ${"%.1f".format(curSize * 595f)}"
-        }
-        updateLabel()
-        val minus = MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
-            text = "A−"
-            setOnClickListener { curSize = (curSize / 1.1f).coerceAtLeast(0.006f); updateLabel() }
-        }
-        val plus = MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
-            text = "A+"
-            setOnClickListener { curSize = (curSize * 1.1f).coerceAtMost(0.2f); updateLabel() }
-        }
-        val boldBox = CheckBox(this).apply {
-            text = "Negrita"
-            isChecked = bold
-        }
-        row.addView(minus)
-        row.addView(plus, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(6) })
-        row.addView(label, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(10) })
-        row.addView(boldBox)
-        box.addView(row)
-        if (isEdit) {
-            box.addView(TextView(this).apply {
-                text = "El texto original se tapa con el color del fondo y se escribe el nuevo en su lugar."
-                setTextColor(Color.parseColor("#646B7A"))
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-                setPadding(0, dp(8), 0, 0)
-            })
-        }
-        MaterialAlertDialogBuilder(this)
-            .setTitle(title)
-            .setView(box)
-            .setPositiveButton("Aplicar") { _, _ -> onApply(input.text.toString(), curSize, boldBox.isChecked) }
-            .setNegativeButton("Cancelar", null)
-            .show()
-        input.requestFocus()
+    /** Sube la página para que el texto que editas quede visible sobre el panel. */
+    private fun scrollToShow(page: Int, yNorm: Float) {
+        val holder = pageHolder(page) ?: return
+        val pageView = holder.page
+        val targetTop = holder.itemView.top + pageView.top + (yNorm * pageView.height).toInt()
+        val desired = dp(70)
+        pages.post { pages.smoothScrollBy(0, targetTop - desired) }
     }
 
     // ------------------------------------------------------------------
@@ -739,10 +898,10 @@ class EditorActivity : AppCompatActivity(), PageHost {
         }
         val list = annots.getOrPut(page) { ArrayList() }
         list.addAll(added)
-        undo.add {
-            annots[page]?.removeAll(added.toSet())
-            refreshPage(page)
-        }
+        push(Action(
+            undo = { annots[page]?.removeAll(added.toSet()); refreshPage(page) },
+            redo = { annots.getOrPut(page) { ArrayList() }.addAll(added); refreshPage(page) }
+        ))
         refreshPage(page)
     }
 
@@ -752,6 +911,9 @@ class EditorActivity : AppCompatActivity(), PageHost {
 
     private fun onMenu(id: Int) {
         when (id) {
+            R.id.m_undo -> doUndo()
+            R.id.m_redo -> doRedo()
+            R.id.m_preview -> setPreview(!preview)
             R.id.m_save -> askSave(thenFinish = false)
             R.id.m_share -> withApplied("Preparando…") { runOnUiThread { Store.shareFile(this, workFile, docName) } }
             R.id.m_ocr -> runOcrAll()
@@ -762,7 +924,7 @@ class EditorActivity : AppCompatActivity(), PageHost {
             R.id.m_extract -> askExtract()
             R.id.m_protect -> askProtect()
             R.id.m_pages_help -> {
-                findViewById<ChipGroup>(R.id.tools).check(R.id.toolPan)
+                selectTool(Tool.PAN, quiet = true)
                 flash("Mantén presionada una página para rotarla, moverla, duplicarla o eliminarla")
             }
         }
@@ -775,7 +937,9 @@ class EditorActivity : AppCompatActivity(), PageHost {
         val snap = annots.mapValues { it.value.toList() }.filterValues { it.isNotEmpty() }
         if (snap.isNotEmpty()) dirty = true
         annots.clear()
-        undo.clear()
+        undoStack.clear()
+        redoStack.clear()
+        updateUndoIcons()
         return snap
     }
 
@@ -866,6 +1030,7 @@ class EditorActivity : AppCompatActivity(), PageHost {
                 docName = finalName
                 toolbar.title = finalName
                 dirty = false
+                updateUndoIcons()
                 toast(note)
                 if (thenFinish) finish()
             }

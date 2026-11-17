@@ -1,8 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <menu xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto">
+    <item android:id="@+id/m_undo" android:icon="@drawable/ic_undo" android:title="Deshacer" app:showAsAction="always" />
+    <item android:id="@+id/m_redo" android:icon="@drawable/ic_redo" android:title="Rehacer" app:showAsAction="always" />
+    <item android:id="@+id/m_preview" android:icon="@drawable/ic_eye" android:title="Vista previa" app:showAsAction="always" />
     <item android:id="@+id/m_save" android:icon="@drawable/ic_save" android:title="Guardar" app:showAsAction="always" />
-    <item android:id="@+id/m_share" android:icon="@drawable/ic_share" android:title="Compartir" app:showAsAction="always" />
+    <item android:id="@+id/m_share" android:title="Compartir" />
     <item android:id="@+id/m_ocr" android:title="Reconocer texto (OCR)" />
     <item android:id="@+id/m_copy_text" android:title="Copiar todo el texto" />
     <item android:id="@+id/m_add_blank" android:title="Agregar página en blanco" />

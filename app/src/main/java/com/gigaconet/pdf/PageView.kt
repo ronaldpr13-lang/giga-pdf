@@ -21,6 +21,8 @@ interface PageHost {
     val tool: Tool
     val penColor: Int
     val penWidth: Float
+    val preview: Boolean
+    val activeAnnot: Annot?
     fun annotsOf(page: Int): List<Annot>
     fun blocksOf(page: Int): List<TextBlock>?
     fun onStroke(page: Int, stroke: StrokeAnnot)
@@ -50,11 +52,16 @@ class PageView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? = nu
     private val fillPaint = Paint().apply { style = Paint.Style.FILL }
     private val blockPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        color = Color.parseColor("#2F6FDB")
-        strokeWidth = 2.5f
-        pathEffect = DashPathEffect(floatArrayOf(10f, 7f), 0f)
+        color = Color.parseColor("#992F6FDB")
+        strokeWidth = 2f
+        pathEffect = DashPathEffect(floatArrayOf(8f, 6f), 0f)
     }
-    private val blockFill = Paint().apply { color = Color.parseColor("#142F6FDB") }
+    private val blockFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#0F2F6FDB") }
+    private val activePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        color = Color.parseColor("#2F6FDB")
+        strokeWidth = 4f
+    }
     private val path = Path()
     private var current: StrokeAnnot? = null
 
@@ -62,6 +69,10 @@ class PageView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? = nu
         override fun onDown(e: MotionEvent) = true
         override fun onSingleTapUp(e: MotionEvent): Boolean {
             val h = host ?: return false
+            if (h.preview) {
+                h.onTap(pageIndex, e.x / width, e.y / height)
+                return true
+            }
             if (h.tool == Tool.TEXT || h.tool == Tool.SIGN || h.tool == Tool.EDIT_TEXT) {
                 h.onTap(pageIndex, e.x / width, e.y / height)
                 return true
@@ -70,7 +81,7 @@ class PageView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? = nu
         }
 
         override fun onLongPress(e: MotionEvent) {
-            if (host?.tool == Tool.PAN) host?.onLongPress(pageIndex)
+            if (host?.tool == Tool.PAN && host?.preview == false) host?.onLongPress(pageIndex)
         }
     })
 
@@ -87,17 +98,25 @@ class PageView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? = nu
         val hostRef = host ?: return
         for (a in hostRef.annotsOf(pageIndex)) drawAnnot(canvas, a, w, h)
         current?.let { drawAnnot(canvas, it, w, h) }
+        if (hostRef.preview) return
+        val radius = 6f * resources.displayMetrics.density
         if (hostRef.tool == Tool.EDIT_TEXT) {
             val edited = hostRef.annotsOf(pageIndex).filterIsInstance<EditAnnot>().map { it.box }
             hostRef.blocksOf(pageIndex)?.forEach { b ->
-                if (edited.any { RectF.intersects(it, b.box) && near(it, b.box) }) return@forEach
-                val r = RectF(b.box.left * w, b.box.top * h, b.box.right * w, b.box.bottom * h)
-                canvas.drawRect(r, blockFill)
-                canvas.drawRect(r, blockPaint)
+                if (edited.any { near(it, b.box) }) return@forEach
+                val r = RectF(b.box.left * w - 3, b.box.top * h - 2, b.box.right * w + 3, b.box.bottom * h + 2)
+                canvas.drawRoundRect(r, radius, radius, blockFill)
+                canvas.drawRoundRect(r, radius, radius, blockPaint)
             }
-            for (box in edited) {
-                canvas.drawRect(RectF(box.left * w, box.top * h, box.right * w, box.bottom * h), blockPaint)
-            }
+        }
+        val active = hostRef.activeAnnot
+        val box = when (active) {
+            is EditAnnot -> RectF(active.box)
+            is TextAnnot -> RectF(active.x, active.y, active.x + (if (active.maxWidth > 0f) active.maxWidth else 0.3f), active.y + active.size * 1.4f / aspect)
+            else -> null
+        }
+        if (box != null && active != null && hostRef.annotsOf(pageIndex).contains(active)) {
+            canvas.drawRoundRect(RectF(box.left * w - 4, box.top * h - 4, box.right * w + 4, box.bottom * h + 4), radius, radius, activePaint)
         }
     }
 
@@ -144,6 +163,7 @@ class PageView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? = nu
         val h = host ?: return false
         val x = (e.x / width).coerceIn(0f, 1f)
         val y = (e.y / height).coerceIn(0f, 1f)
+        if (h.preview) return gestures.onTouchEvent(e)
         when (h.tool) {
             Tool.PEN, Tool.HIGHLIGHT -> {
                 parent?.requestDisallowInterceptTouchEvent(true)
