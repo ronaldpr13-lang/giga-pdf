@@ -204,6 +204,15 @@ class PageView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? = nu
         val h = host ?: return false
         val x = (e.x / width).coerceIn(0f, 1f)
         val y = (e.y / height).coerceIn(0f, 1f)
+        // Dos dedos = zoom: se cancela lo que se estaba dibujando
+        if (e.pointerCount >= 2) {
+            if (current != null) {
+                current = null
+                invalidate()
+            }
+            parent?.requestDisallowInterceptTouchEvent(false)
+            return false
+        }
         if (h.preview) return gestures.onTouchEvent(e)
         when (h.tool) {
             Tool.PEN, Tool.HIGHLIGHT -> {

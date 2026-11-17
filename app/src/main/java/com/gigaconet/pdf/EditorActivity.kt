@@ -418,7 +418,12 @@ class EditorActivity : AppCompatActivity(), PageHost {
         previewBitmaps.evictAll()
         pendingPreview.clear()
         val snap = annots.mapValues { it.value.toList() }.filterValues { it.isNotEmpty() }
-        if (snap.isEmpty()) return  // sin cambios: se ve el PDF tal cual
+        if (snap.isEmpty()) {
+            // Sin cambios: se ve el PDF tal cual
+            renderExec.execute { closePreviewRenderer() }
+            refreshAll()
+            return
+        }
         showBusy("Preparando vista previa…")
         val file = File(cacheDir, "vista_previa.pdf")
         ioExec.execute {
@@ -596,6 +601,7 @@ class EditorActivity : AppCompatActivity(), PageHost {
         a.undo()
         redoStack.add(a)
         updateUndoIcons()
+        if (preview) buildPreview()  // la vista previa se actualiza con el cambio
     }
 
     private fun doRedo() {
@@ -607,6 +613,7 @@ class EditorActivity : AppCompatActivity(), PageHost {
         a.redo()
         undoStack.add(a)
         updateUndoIcons()
+        if (preview) buildPreview()
     }
 
     private fun updateUndoIcons() {
