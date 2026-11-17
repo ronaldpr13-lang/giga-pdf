@@ -127,7 +127,7 @@ class EditorActivity : AppCompatActivity(), PageHost {
         toolBar = findViewById(R.id.toolBar)
         exitPreview = findViewById(R.id.btnExitPreview)
         pageIndicator = findViewById(R.id.pageIndicator)
-        exitPreview.setOnClickListener { setPreview(false) }
+        exitPreview.setOnClickListener { togglePreview(false) }
 
         toolbar.inflateMenu(R.menu.editor)
         toolbar.setNavigationOnClickListener { onBackPressedDispatcher.onBackPressed() }
@@ -153,7 +153,7 @@ class EditorActivity : AppCompatActivity(), PageHost {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 if (preview) {
-                    setPreview(false)
+                    togglePreview(false)
                     return
                 }
                 if (!dirty && hasAnnots().not()) {
@@ -466,7 +466,7 @@ class EditorActivity : AppCompatActivity(), PageHost {
     }
 
     /** Vista previa: esconde recuadros y herramientas para ver cómo queda. */
-    private fun setPreview(on: Boolean) {
+    private fun togglePreview(on: Boolean) {
         if (preview == on) return
         preview = on
         toolBar.visibility = if (on) View.GONE else View.VISIBLE
@@ -591,7 +591,7 @@ class EditorActivity : AppCompatActivity(), PageHost {
 
     override fun onTap(page: Int, x: Float, y: Float) {
         if (preview) {
-            setPreview(false)
+            togglePreview(false)
             return
         }
         when (tool) {
@@ -729,7 +729,7 @@ class EditorActivity : AppCompatActivity(), PageHost {
             .minByOrNull { it.box.width() * it.box.height() }
         if (block == null) {
             // Tocaste un espacio vacío: vista previa
-            setPreview(true)
+            togglePreview(true)
             return
         }
         val edit = makeEdit(page, block)
@@ -913,7 +913,7 @@ class EditorActivity : AppCompatActivity(), PageHost {
         when (id) {
             R.id.m_undo -> doUndo()
             R.id.m_redo -> doRedo()
-            R.id.m_preview -> setPreview(!preview)
+            R.id.m_preview -> togglePreview(!preview)
             R.id.m_save -> askSave(thenFinish = false)
             R.id.m_share -> withApplied("Preparando…") { runOnUiThread { Store.shareFile(this, workFile, docName) } }
             R.id.m_ocr -> runOcrAll()
