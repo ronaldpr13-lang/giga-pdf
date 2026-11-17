@@ -82,6 +82,17 @@ Tel. / WhatsApp: 809-729-0613<br>
 Correo: ronaldpr13@gmail.com
 """
 
+    /** Versión instalada, ej. "1.5 (6)". */
+    fun appVersion(ctx: Context): String = try {
+        val info = ctx.packageManager.getPackageInfo(ctx.packageName, 0)
+        "${info.versionName} (${info.longVersionCode})"
+    } catch (e: Exception) {
+        "?"
+    }
+
+    private fun versionLine(ctx: Context) =
+        "<br><br><font color='#646B7A'><small>GigaPDF · Versión ${appVersion(ctx)}</small></font>"
+
     fun accepted(ctx: Context): Boolean =
         ctx.getSharedPreferences("gigapdf", Context.MODE_PRIVATE).getBoolean(KEY, false)
 
@@ -113,7 +124,7 @@ Correo: ronaldpr13@gmail.com
         }
         val dialog = MaterialAlertDialogBuilder(act)
             .setTitle("Aviso importante")
-            .setView(body(act, AVISO))
+            .setView(body(act, AVISO + versionLine(act)))
             .setCancelable(false)
             .setPositiveButton("Acepto") { _, _ ->
                 setAccepted(act)
@@ -129,7 +140,8 @@ Correo: ronaldpr13@gmail.com
     /** Muestra los Términos y Condiciones completos. */
     fun show(ctx: Context) {
         MaterialAlertDialogBuilder(ctx)
-            .setView(body(ctx, TERMINOS))
+            .setTitle("Términos y condiciones")
+            .setView(body(ctx, "<b>Versión de la app: ${appVersion(ctx)}</b><br><br>" + TERMINOS.trim().removePrefix("<b>TÉRMINOS Y CONDICIONES DE USO — GigaPDF</b><br>") + versionLine(ctx)))
             .setPositiveButton("Cerrar", null)
             .show()
     }

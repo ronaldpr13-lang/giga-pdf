@@ -125,6 +125,8 @@ object TextFinder {
             val h = bmp.height.toFloat()
             val blocks = ArrayList<TextBlock>()
             val ocrLines = ArrayList<OcrLine>()
+            val regular = android.graphics.Paint().apply { typeface = android.graphics.Typeface.SANS_SERIF; textSize = 100f }
+            val boldP = android.graphics.Paint().apply { typeface = android.graphics.Typeface.create(android.graphics.Typeface.SANS_SERIF, android.graphics.Typeface.BOLD); textSize = 100f }
             for (block in result.textBlocks) {
                 val ls = block.lines.filter { it.boundingBox != null && it.text.isNotBlank() }
                 if (ls.isEmpty()) continue
@@ -132,33 +134,75 @@ object TextFinder {
                     val r = l.boundingBox!!
                     ocrLines.add(OcrLine(RectF(r.left / w, r.top / h, r.right / w, r.bottom / h), l.text))
                 }
-                val heights = ls.map { it.boundingBox!!.height().toFloat() }.sorted()
-                val lineH = heights[heights.size / 2]
-                val sizePx = lineH * 0.78f
-                val first = ls.first().boundingBox!!
-                val tops = ls.map { it.boundingBox!!.top.toFloat() }
-                val diffs = (1 until tops.size).map { tops[it] - tops[it - 1] }.filter { it > 0f }
-                val lh = if (diffs.isEmpty()) 1.2f else diffs.minOrNull()!! / sizePx
-                val left = ls.minOf { it.boundingBox!!.left } - lineH * 0.15f
-                val right = ls.maxOf { it.boundingBox!!.right } + lineH * 0.15f
-                val top = ls.minOf { it.boundingBox!!.top } - lineH * 0.1f
-                val bottom = ls.maxOf { it.boundingBox!!.bottom } + lineH * 0.1f
-                blocks.add(
-                    TextBlock(
-                        box = RectF(left / w, top / h, right / w, bottom / h),
-                        text = ls.joinToString("\n") { it.text },
-                        size = sizePx / w,
-                        firstBaseline = (first.bottom - lineH * 0.2f) / h,
-                        lineHeight = lh.coerceIn(1.0f, 2.2f),
-                        bold = false,
-                        fromOcr = true
-                    )
-                )
+                // Separar renglones de distinto tamaño (ej. un título en negrita y el texto normal)
+                val groups = ArrayList<MutableList<com.google.mlkit.vision.text.Text.Line>>()
+                for (l in ls) {
+                    val g = groups.lastOrNull()
+                    val r = l.boundingBox!!
+                    if (g != null) {
+                        val pr = g.last().boundingBox!!
+                        val ratio = r.height().toFloat() / pr.height().coerceAtLeast(1)
+                        val gap = r.top - pr.bottom
+                        if (ratio in 0.85f..1.18f && gap < pr.height() * 1.2f && Math.abs(r.left - pr.left) < pr.height() * 2.5f) {
+                            g.add(l)
+                            continue
+                        }
+                    }
+                    groups.add(mutableListOf(l))
+                }
+                for (g in groups) blocks.add(ocrBlock(g, w, h, regular, boldP))
             }
             return Pair(blocks, ocrLines)
         } finally {
             recognizer.close()
         }
+    }
+
+    /**
+     * Calcula tamaño, negrita y posición de un grupo de renglones de una foto.
+     * El tamaño se ajusta para que el renglón más largo mida lo mismo que en la
+     * foto (así el texto nuevo queda del mismo tamaño que el original).
+     */
+    private fun ocrBlock(
+        g: List<com.google.mlkit.vision.text.Text.Line>, w: Float, h: Float,
+        regular: android.graphics.Paint, boldP: android.graphics.Paint
+    ): TextBlock {
+        val heights = g.map { it.boundingBox!!.height().toFloat() }.sorted()
+        val lineH = heights[heights.size / 2]
+        val byHeight = lineH * 0.74f
+        // Renglón más ancho: el que mejor sirve para medir
+        val widest = g.maxByOrNull { it.boundingBox!!.width() }!!
+        val boxW = widest.boundingBox!!.width().toFloat()
+        val wReg = regular.measureText(widest.text).coerceAtLeast(1f)
+        val wBold = boldP.measureText(widest.text).coerceAtLeast(1f)
+        val sizeReg = boxW / wReg * 100f
+        val sizeBold = boxW / wBold * 100f
+        // Si con negrita el tamaño cuadra mejor con la altura de las letras, era negrita
+        val bold = widest.text.length >= 4 && Math.abs(sizeBold - byHeight) < Math.abs(sizeReg - byHeight)
+        var sizePx = if (bold) sizeBold else sizeReg
+        if (widest.text.length < 4) sizePx = byHeight
+        sizePx = sizePx.coerceIn(byHeight * 0.7f, byHeight * 1.5f)
+
+        val first = g.first().boundingBox!!
+        val tops = g.map { it.boundingBox!!.top.toFloat() }
+        val diffs = (1 until tops.size).map { tops[it] - tops[it - 1] }.filter { it > 0f }
+        val lh = if (diffs.isEmpty()) 1.2f else diffs.minOrNull()!! / sizePx
+        val textLeft = g.minOf { it.boundingBox!!.left }.toFloat()
+        val pad = lineH * 0.15f
+        val left = textLeft - pad
+        val right = g.maxOf { it.boundingBox!!.right } + pad
+        val top = g.minOf { it.boundingBox!!.top } - lineH * 0.12f
+        val bottom = g.maxOf { it.boundingBox!!.bottom } + lineH * 0.12f
+        return TextBlock(
+            box = RectF(left / w, top / h, right / w, bottom / h),
+            text = g.joinToString("\n") { it.text },
+            size = sizePx / w,
+            firstBaseline = (first.bottom - lineH * 0.2f) / h,
+            lineHeight = lh.coerceIn(1.0f, 2.2f),
+            bold = bold,
+            fromOcr = true,
+            textLeft = textLeft / w
+        )
     }
 
     /**

@@ -840,7 +840,7 @@ class EditorActivity : AppCompatActivity(), PageHost {
         val bmp = bitmaps.get(page)
         val (bg, fg) = if (bmp != null && !bmp.isRecycled) TextFinder.sampleColors(bmp, b.box) else Pair(Color.WHITE, Color.BLACK)
         val asp = aspects.getOrElse(page) { 1.414f }
-        val x = b.box.left + 0.15f * b.size
+        val x = if (b.textLeft.isNaN()) b.box.left + 0.15f * b.size else b.textLeft
         val y = b.firstBaseline - b.size / asp
         // Un renglón suelto crece hacia la derecha; un párrafo se acomoda al ancho original
         val maxW = if (b.text.contains('\n')) (b.box.width() - 0.15f * b.size) * 1.08f else 0f

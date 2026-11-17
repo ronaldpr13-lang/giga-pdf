@@ -143,6 +143,7 @@ class MainActivity : AppCompatActivity() {
         }
         findViewById<View>(R.id.cardPhotoText).setOnClickListener { askPhotoSource() }
         findViewById<View>(R.id.btnTerms).setOnClickListener { Terms.show(this) }
+        findViewById<TextView>(R.id.subtitle).text = "Escanea, crea y edita tus PDF · v${Terms.appVersion(this).substringBefore(' ')}"
         Terms.ensureAccepted(this) { }
         findViewById<View>(R.id.cardBlank).setOnClickListener {
             work("Creando…") {

@@ -84,7 +84,9 @@ class TextBlock(
     val lineHeight: Float,
     val bold: Boolean,
     val fromOcr: Boolean,
-    val fontName: String? = null
+    val fontName: String? = null,
+    /** Borde izquierdo exacto del texto (en fotos). NaN = calcularlo. */
+    val textLeft: Float = Float.NaN
 )
 
 /** Una línea reconocida por OCR (para crear la capa de texto invisible). */
