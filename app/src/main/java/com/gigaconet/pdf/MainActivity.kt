@@ -85,6 +85,8 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.cardOpen).setOnClickListener { openLauncher.launch(arrayOf("application/pdf")) }
         findViewById<View>(R.id.cardImages).setOnClickListener { imagesLauncher.launch("image/*") }
         findViewById<View>(R.id.cardMerge).setOnClickListener { mergeLauncher.launch(arrayOf("application/pdf")) }
+        findViewById<View>(R.id.btnTerms).setOnClickListener { Terms.show(this) }
+        Terms.ensureAccepted(this) { }
         findViewById<View>(R.id.btnBlank).setOnClickListener {
             work("Creando…") {
                 val f = newTemp()

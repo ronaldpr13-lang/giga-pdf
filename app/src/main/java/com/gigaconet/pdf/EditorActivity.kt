@@ -172,7 +172,8 @@ class EditorActivity : AppCompatActivity(), PageHost {
 
         val dir = File(cacheDir, "work").apply { mkdirs() }
         workFile = File(dir, "actual_${System.currentTimeMillis()}.pdf")
-        loadInitial()
+        // Si abrieron un PDF con GigaPDF sin pasar por el inicio, también ven el aviso
+        Terms.ensureAccepted(this) { loadInitial() }
     }
 
     override fun onDestroy() {
