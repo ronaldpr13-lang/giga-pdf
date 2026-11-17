@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg">#F3F4F7</color>
+    <color name="surface">#FFFFFF</color>
+    <color name="surface_soft">#ECEEF3</color>
+    <color name="text">#1B1E26</color>
+    <color name="text_soft">#646B7A</color>
+    <color name="divider">#E2E5EC</color>
+    <color name="primary">#D93A3A</color>
+    <color name="on_primary">#FFFFFF</color>
+    <color name="primary_soft">#FBE3E1</color>
+    <color name="on_primary_soft">#7A1E1E</color>
+    <color name="page_bg">#D9DCE3</color>
+    <color name="act_scan">#2F6FDB</color>
+    <color name="act_scan_soft">#E2EBFB</color>
+    <color name="act_open">#D93A3A</color>
+    <color name="act_open_soft">#FBE3E1</color>
+    <color name="act_img">#1F9468</color>
+    <color name="act_img_soft">#DDF2EA</color>
+    <color name="act_merge">#8A4FD1</color>
+    <color name="act_merge_soft">#EEE5FA</color>
+</resources>

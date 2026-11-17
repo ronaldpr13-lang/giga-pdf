@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/page_bg"
+    android:orientation="vertical">
+
+    <com.google.android.material.appbar.MaterialToolbar
+        android:id="@+id/toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        android:background="@color/bg"
+        app:navigationIcon="@drawable/ic_back"
+        app:subtitleTextColor="@color/text_soft"
+        app:titleTextAppearance="@style/TextAppearance.Material3.TitleMedium" />
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/pages"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:clipToPadding="false"
+            android:paddingStart="10dp"
+            android:paddingTop="10dp"
+            android:paddingEnd="10dp"
+            android:paddingBottom="24dp" />
+
+        <TextView
+            android:id="@+id/hint"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top|center_horizontal"
+            android:layout_marginTop="12dp"
+            android:background="@drawable/bg_hint"
+            android:paddingStart="16dp"
+            android:paddingTop="8dp"
+            android:paddingEnd="16dp"
+            android:paddingBottom="8dp"
+            android:textColor="@color/on_primary"
+            android:textSize="13sp"
+            android:visibility="gone" />
+
+        <FrameLayout
+            android:id="@+id/busy"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="#66FFFFFF"
+            android:clickable="true"
+            android:focusable="true"
+            android:visibility="gone">
+
+            <ProgressBar
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center" />
+        </FrameLayout>
+    </FrameLayout>
+
+    <HorizontalScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@color/surface"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="10dp"
+            android:paddingTop="6dp"
+            android:paddingEnd="10dp"
+            android:paddingBottom="6dp">
+
+            <com.google.android.material.chip.ChipGroup
+                android:id="@+id/tools"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                app:chipSpacingHorizontal="6dp"
+                app:selectionRequired="true"
+                app:singleLine="true"
+                app:singleSelection="true">
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/toolPan"
+                    style="@style/ToolChip"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Mover"
+                    app:chipIcon="@drawable/ic_pan" />
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/toolEditText"
+                    style="@style/ToolChip"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Editar texto"
+                    app:chipIcon="@drawable/ic_text" />
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/toolPen"
+                    style="@style/ToolChip"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Lápiz"
+                    app:chipIcon="@drawable/ic_pen" />
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/toolHighlight"
+                    style="@style/ToolChip"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Resaltar"
+                    app:chipIcon="@drawable/ic_highlight" />
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/toolText"
+                    style="@style/ToolChip"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Añadir texto"
+                    app:chipIcon="@drawable/ic_add" />
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/toolSign"
+                    style="@style/ToolChip"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Firma"
+                    app:chipIcon="@drawable/ic_sign" />
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/toolErase"
+                    style="@style/ToolChip"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Borrar"
+                    app:chipIcon="@drawable/ic_eraser" />
+            </com.google.android.material.chip.ChipGroup>
+
+            <View
+                android:layout_width="1dp"
+                android:layout_height="28dp"
+                android:layout_marginStart="8dp"
+                android:layout_marginEnd="8dp"
+                android:background="@color/divider" />
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/btnColor"
+                style="@style/Widget.Material3.Chip.Assist"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Color"
+                app:chipIcon="@drawable/ic_circle"
+                app:chipStrokeWidth="0dp"
+                app:chipBackgroundColor="@color/surface_soft" />
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/btnUndo"
+                style="@style/Widget.Material3.Chip.Assist"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:text="Deshacer"
+                app:chipIcon="@drawable/ic_undo"
+                app:chipStrokeWidth="0dp"
+                app:chipBackgroundColor="@color/surface_soft" />
+        </LinearLayout>
+    </HorizontalScrollView>
+</LinearLayout>

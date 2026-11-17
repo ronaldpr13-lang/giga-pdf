@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <item android:id="@+id/m_save" android:icon="@drawable/ic_save" android:title="Guardar" app:showAsAction="always" />
+    <item android:id="@+id/m_share" android:icon="@drawable/ic_share" android:title="Compartir" app:showAsAction="always" />
+    <item android:id="@+id/m_ocr" android:title="Reconocer texto (OCR)" />
+    <item android:id="@+id/m_copy_text" android:title="Copiar todo el texto" />
+    <item android:id="@+id/m_add_blank" android:title="Agregar página en blanco" />
+    <item android:id="@+id/m_add_image" android:title="Agregar página desde foto" />
+    <item android:id="@+id/m_add_pdf" android:title="Agregar otro PDF al final" />
+    <item android:id="@+id/m_extract" android:title="Extraer páginas" />
+    <item android:id="@+id/m_protect" android:title="Proteger con contraseña" />
+    <item android:id="@+id/m_pages_help" android:title="Organizar páginas" />
+</menu>
